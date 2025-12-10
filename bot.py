@@ -2,8 +2,9 @@ import os
 import logging
 import time
 import threading
+import asyncio
 from flask import Flask
-from telegram import Update
+from telegram import Update, Bot
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 import tweepy
 
@@ -63,17 +64,22 @@ def extract_tweet_id(url):
     except IndexError:
         return None
 
-def process_batch_comments(chat_id, urls, comment_text, count, application):
+def process_batch_comments(chat_id, urls, comment_text, count, token):
     """
     Background task to process the list of URLs.
     """
     client = get_twitter_client()
     
+    # Create a NEW Bot instance for this thread to avoid asyncio loop conflicts
+    bot = Bot(token=token)
+
     async def send_update(text):
-        await application.bot.send_message(chat_id=chat_id, text=text)
+        try:
+            await bot.send_message(chat_id=chat_id, text=text)
+        except Exception as e:
+            logger.error(f"Failed to send Telegram update: {e}")
 
     # Use a separate event loop for the async send_message call inside this thread
-    import asyncio
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
@@ -166,9 +172,10 @@ async def handle_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"📋 Received {len(urls)} URLs. Processing in background...")
 
     # Run in a separate thread so we don't block the bot from responding to other commands
+    # PASS THE TOKEN STRING, NOT THE APPLICATION OBJECT
     t = threading.Thread(
         target=process_batch_comments, 
-        args=(update.effective_chat.id, urls, comment_text, count, context.application)
+        args=(update.effective_chat.id, urls, comment_text, count, TELEGRAM_TOKEN)
     )
     t.start()
 
