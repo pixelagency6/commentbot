@@ -19,8 +19,8 @@ TWITTER_API_SECRET = os.getenv('TWITTER_API_SECRET', 'WuZoacqmGnLsyOenZeD0ZIIVyb
 
 # X (Twitter) Access Tokens (USER ID)
 # These allow the bot to post as YOU.
-TWITTER_ACCESS_TOKEN = os.getenv('TWITTER_ACCESS_TOKEN', '1776988097680453633-ZzfpvSYi1J5VdEy6Hcxr20htpau8pQ')
-TWITTER_ACCESS_SECRET = os.getenv('TWITTER_ACCESS_SECRET', '9IN8pzdbaa8LcoL8OXyFkjBdRv2f8duIMTatbE03sHviH')
+TWITTER_ACCESS_TOKEN = os.getenv('TWITTER_ACCESS_TOKEN', '1776988097680453633-rqPgtFFFdDwPNMhKGLCRpOZh1Jj5p2')
+TWITTER_ACCESS_SECRET = os.getenv('TWITTER_ACCESS_SECRET', 'nRPNuNtQDylIQiHP5k1lSlotBEcwn6WpAsMq4VbDl4EGf')
 
 # Port is required by Render
 PORT = int(os.environ.get('PORT', 5000))
