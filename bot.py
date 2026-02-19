@@ -9,20 +9,18 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 import tweepy
 
 # --- CONFIGURATION ---
-# Secrets included as defaults for testing. 
-# REGENERATE THESE if you share this code publicly.
+# It is highly recommended to set these in Render Dashboard -> Environment Variables
 TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN', '8342514965:AAHiDBgnA-pGrYGdPRUsO_IhRFHFO9xNeTU')
 
-# X (Twitter) API Credentials (APP ID)
+# X (Twitter) API Credentials
 TWITTER_API_KEY = os.getenv('TWITTER_API_KEY', 'OoOrE7dhXkfpIx8X34pbzLhEO')
 TWITTER_API_SECRET = os.getenv('TWITTER_API_SECRET', 'WuZoacqmGnLsyOenZeD0ZIIVybxTUszg9vjoEDt5wfcIHarOVG')
 
-# X (Twitter) Access Tokens (USER ID)
-# These allow the bot to post as YOU.
+# X (Twitter) Access Tokens
 TWITTER_ACCESS_TOKEN = os.getenv('TWITTER_ACCESS_TOKEN', '1776988097680453633-rqPgtFFFdDwPNMhKGLCRpOZh1Jj5p2')
 TWITTER_ACCESS_SECRET = os.getenv('TWITTER_ACCESS_SECRET', 'nRPNuNtQDylIQiHP5k1lSlotBEcwn6WpAsMq4VbDl4EGf')
 
-# Port is required by Render
+# Port is required by Render for Web Services
 PORT = int(os.environ.get('PORT', 5000))
 
 # --- LOGGING SETUP ---
@@ -40,11 +38,11 @@ def health_check():
     return "X Comment Bot is running!", 200
 
 def run_flask():
+    # Use 0.0.0.0 to allow external access from Render's load balancer
     app.run(host='0.0.0.0', port=PORT)
 
 # --- X (TWITTER) LOGIC ---
 def get_twitter_client():
-    # Check for missing tokens before trying to connect
     if not TWITTER_ACCESS_TOKEN or not TWITTER_ACCESS_SECRET:
         logger.error("Missing Access Tokens! Bot cannot post.")
         return None
@@ -59,7 +57,6 @@ def get_twitter_client():
 def extract_tweet_id(url):
     try:
         # Handles https://x.com/user/status/123456?s=20
-        # Split by /status/ and take the right side, then split by ? and take the left side
         return url.split('/status/')[1].split('?')[0]
     except IndexError:
         return None
@@ -69,8 +66,6 @@ def process_batch_comments(chat_id, urls, comment_text, count, token):
     Background task to process the list of URLs.
     """
     client = get_twitter_client()
-    
-    # Create a NEW Bot instance for this thread to avoid asyncio loop conflicts
     bot = Bot(token=token)
 
     async def send_update(text):
@@ -79,12 +74,11 @@ def process_batch_comments(chat_id, urls, comment_text, count, token):
         except Exception as e:
             logger.error(f"Failed to send Telegram update: {e}")
 
-    # Use a separate event loop for the async send_message call inside this thread
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
 
     if not client:
-        loop.run_until_complete(send_update("❌ Error: Missing Twitter Access Tokens. Please set TWITTER_ACCESS_TOKEN and TWITTER_ACCESS_SECRET."))
+        loop.run_until_complete(send_update("❌ Error: Missing Twitter Access Tokens."))
         loop.close()
         return
 
@@ -102,11 +96,9 @@ def process_batch_comments(chat_id, urls, comment_text, count, token):
         for i in range(count):
             current_op += 1
             try:
-                # Post the comment
                 response = client.create_tweet(text=comment_text, in_reply_to_tweet_id=tweet_id)
                 logger.info(f"Commented on {tweet_id}: {response.data['id']}")
                 
-                # Check if it's the last one to avoid unnecessary waiting
                 if current_op < total_ops:
                     wait_time = 60  # 60 seconds delay to reduce ban risk
                     loop.run_until_complete(send_update(
@@ -119,10 +111,9 @@ def process_batch_comments(chat_id, urls, comment_text, count, token):
 
             except tweepy.TooManyRequests:
                 loop.run_until_complete(send_update("⚠️ Rate Limit Hit! Pausing for 15 minutes..."))
-                time.sleep(900) # Wait 15 mins
+                time.sleep(900)
             except Exception as e:
                 loop.run_until_complete(send_update(f"❌ Error on {url}: {str(e)}"))
-                # If error is fatal (auth), break? For now, we continue to next.
 
     loop.run_until_complete(send_update("🎉 Batch job completed!"))
     loop.close()
@@ -133,9 +124,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🐦 **X (Twitter) Engagement Bot**\n\n"
         "Usage:\n"
-        "`/batch <count> <comment text>`\n"
-        "`<url1>`\n"
-        "`<url2>`\n\n"
+        " `/batch <count> <comment text>`\n"
+        " `<url1>`\n"
+        " `<url2>`\n\n"
         "**Example:**\n"
         "/batch 2 Great post!\n"
         "https://x.com/user/status/123\n"
@@ -147,11 +138,10 @@ async def handle_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = update.message.text
     lines = message_text.split('\n')
     
-    # Parse the first line: /batch <count> <comment...>
     first_line_parts = lines[0].split(' ')
     
     if len(first_line_parts) < 3:
-        await update.message.reply_text("❌ Format error. Usage:\n/batch <count> <text>\n<url1>\n<url2>")
+        await update.message.reply_text("❌ Format error. Usage: /batch <count> <text>")
         return
 
     try:
@@ -161,18 +151,14 @@ async def handle_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     comment_text = ' '.join(first_line_parts[2:])
-    
-    # The rest of the lines are URLs
     urls = [line.strip() for line in lines[1:] if line.strip().startswith('http')]
 
     if not urls:
-        await update.message.reply_text("❌ No URLs found in the message.")
+        await update.message.reply_text("❌ No URLs found.")
         return
 
-    await update.message.reply_text(f"📋 Received {len(urls)} URLs. Processing in background...")
+    await update.message.reply_text(f"📋 Received {len(urls)} URLs. Processing...")
 
-    # Run in a separate thread so we don't block the bot from responding to other commands
-    # PASS THE TOKEN STRING, NOT THE APPLICATION OBJECT
     t = threading.Thread(
         target=process_batch_comments, 
         args=(update.effective_chat.id, urls, comment_text, count, TELEGRAM_TOKEN)
@@ -181,7 +167,7 @@ async def handle_batch(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # --- MAIN EXECUTION ---
 if __name__ == '__main__':
-    # Start Flask (for Render)
+    # Start Flask (for Render Health Checks)
     flask_thread = threading.Thread(target=run_flask)
     flask_thread.daemon = True
     flask_thread.start()
@@ -191,9 +177,8 @@ if __name__ == '__main__':
         print("Error: TELEGRAM_TOKEN not found.")
     else:
         application = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-        
         application.add_handler(CommandHandler('start', start))
         application.add_handler(CommandHandler('batch', handle_batch))
         
-        print("Bot is polling...")
+        print("Bot is starting...")
         application.run_polling()
